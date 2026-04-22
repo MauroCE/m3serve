@@ -1,6 +1,6 @@
 [project]
 name = "m3serve"
-version = "0.1.2"
+version = "0.1.3"
 description = "High-throughput BGE-M3 inference engine with dense + sparse embeddings"
 readme = "README.md"
 authors = [
