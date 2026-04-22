@@ -29,6 +29,7 @@ class BGEM3Encoder:
         device: str | None = None,
         use_fp16: bool = True,
         torch_compile: bool = False,
+        max_length: int = 8192,
     ) -> None:
         if device is None:
             if torch.cuda.is_available():
@@ -42,6 +43,7 @@ class BGEM3Encoder:
         # Tokenizer — template is deepcopied per thread inside _get_tokenizer.
         self._tokenizer_template = AutoTokenizer.from_pretrained(model_name)
         self._local = threading.local()
+        self._max_length = max_length
 
         # Backbone: XLM-RoBERTa transformer.
         _backbone = AutoModel.from_pretrained(model_name)
@@ -86,7 +88,7 @@ class BGEM3Encoder:
                 padding=True,
                 truncation=True,
                 return_tensors="pt",
-                max_length=tok.model_max_length,
+                max_length=self._max_length,
             ),
         )
 

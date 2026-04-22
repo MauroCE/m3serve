@@ -47,9 +47,12 @@ class Engine:
         max_batch_size: int = 256,
         batch_delay: float = 0.005,
         tokenizer_threads: int = 4,
+        max_length: int = 8192,
         _encoder: BGEM3Encoder | None = None,
     ) -> None:
-        self._encoder = _encoder or BGEM3Encoder(model_name, device, use_fp16, torch_compile)
+        self._encoder = _encoder or BGEM3Encoder(
+            model_name, device, use_fp16, torch_compile, max_length
+        )
         self._max_batch_size = max_batch_size
         self._batch_delay = batch_delay
         self._tokenizer_threads = tokenizer_threads
