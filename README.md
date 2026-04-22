@@ -90,3 +90,6 @@ your expected traffic pattern before deploying.
 **bge-m3 only.** The engine is purpose-built for `BAAI/bge-m3` and models
 with the same three-stage encode interface. It is not a general-purpose
 inference server.
+
+# Notebooks / Tutorials
+- `m3serve` generates identical sparse and dense vectors to FlagEmbedding. [Colab Notebook](https://colab.research.google.com/drive/1StwAXVNOLWYPkH0Gng_1pVxFkDE5hcy_?usp=sharing)
