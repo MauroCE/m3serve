@@ -49,3 +49,41 @@ Incoming requests are queued and batched by token length (shorter sequences firs
 | `max_batch_size` | `256` | Maximum sequences per GPU batch |
 | `batch_delay` | `0.005` | Coalescing window in seconds — sleep after first item arrives to let concurrent requests accumulate. Set to ~½ × GPU inference time for your batch size. |
 | `tokenizer_threads` | `4` | Number of threads dedicated to tokenization (`token_lengths`). Each thread holds its own tokenizer copy; all are pre-warmed at `start()` so no cold deepcopy happens during serving. |
+
+## Tuning `batch_delay`
+
+When the queue goes from empty to non-empty, the preprocess thread sleeps for
+`batch_delay` seconds before consuming it. Any requests that arrive during
+that window get merged into the same GPU batch.
+
+- **Low concurrency / latency-sensitive:** use `Engine(batch_delay=0)`.
+  At c=1 the window is wasted because there is no one else to wait for.
+- **High concurrency / throughput-focused:** keep the default (`0.005`).
+  Concurrent requests coalesce into larger batches, amortising the GPU's
+  fixed per-forward-pass cost.
+
+A good starting value is roughly half your typical GPU inference time.
+This heuristic is also used by
+[Infinity-emb](https://github.com/michaelfeil/infinity) and mirrors
+Triton's [`max_queue_delay_microseconds`](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/batcher.html).
+
+## Limitations
+
+**Single model, single GPU.** m3serve runs one bge-m3 instance on one GPU.
+There is no replica support or multi-GPU sharding.
+
+**Coalescing window adds latency at low concurrency.** The default
+`batch_delay=0.005` sleeps 5 ms after the first request arrives to let
+concurrent requests accumulate into a larger batch. At c=1 this sleep is
+always wasted, adding ~5 ms to every request. Use `Engine(batch_delay=0)`
+for single-client or latency-sensitive workloads.
+
+**p99 latency can be spiky at medium concurrency.** A request that just
+misses a coalescing window must wait for the next cycle. In practice this
+means p99 can be 5-10x higher than p50 at moderate concurrency levels
+(e.g. c=4 to c=8). If your workload has strict p99 SLAs, benchmark under
+your expected traffic pattern before deploying.
+
+**bge-m3 only.** The engine is purpose-built for `BAAI/bge-m3` and models
+with the same three-stage encode interface. It is not a general-purpose
+inference server.
