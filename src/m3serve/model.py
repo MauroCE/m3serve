@@ -1,17 +1,21 @@
-"""Thin wrapper around BGEM3FlagModel exposing a three-stage encode interface."""
+"""BGE-M3 encoder: tokenise → GPU forward pass → post-process."""
 
 import copy
+import os
 import threading
 from typing import Any, cast
 
 import torch
-from FlagEmbedding import BGEM3FlagModel
+import torch.nn as nn
+import torch.nn.functional as F
+from huggingface_hub import hf_hub_download
+from transformers import AutoModel, AutoTokenizer
 
 from .types import EmbeddingResult
 
 
 class BGEM3Encoder:
-    """Thin wrapper around BGEM3FlagModel exposing a three-stage encode interface.
+    """Three-stage BGE-M3 encoder backed by transformers AutoModel.
 
     Stages are designed to run in separate threads:
         encode_pre  — tokenise on CPU (thread-safe, each thread owns its tokenizer)
@@ -25,6 +29,7 @@ class BGEM3Encoder:
         device: str | None = None,
         use_fp16: bool = True,
         torch_compile: bool = False,
+        max_length: int = 8192,
     ) -> None:
         if device is None:
             if torch.cuda.is_available():
@@ -35,22 +40,37 @@ class BGEM3Encoder:
                 device = "cpu"
         self.device = device
 
-        self._embedder = BGEM3FlagModel(
-            model_name_or_path=model_name,
-            use_fp16=use_fp16 and device != "cpu",
-            devices=device,
-        )
-        # Template used to cheaply clone a per-thread tokenizer (avoids disk re-load).
-        self._tokenizer_template = copy.deepcopy(self._embedder.tokenizer)
+        # Tokenizer — template is deepcopied per thread inside _get_tokenizer.
+        self._tokenizer_template = AutoTokenizer.from_pretrained(model_name)
         self._local = threading.local()
-        self._model = self._embedder.model  # EncoderOnlyEmbedderM3ModelForInference
+        self._max_length = max_length
+
+        # Backbone: XLM-RoBERTa transformer.
+        _backbone = AutoModel.from_pretrained(model_name)
+        hidden_size = int(getattr(_backbone.config, "hidden_size"))
+        self._backbone: nn.Module = _backbone
+
+        # Sparse linear head — Linear(hidden_size, 1), weights shipped with the model.
+        self._sparse_linear = nn.Linear(hidden_size, 1)
+        sparse_pt = (
+            os.path.join(model_name, "sparse_linear.pt")
+            if os.path.isdir(model_name)
+            else hf_hub_download(repo_id=model_name, filename="sparse_linear.pt")
+        )
+        self._sparse_linear.load_state_dict(
+            torch.load(sparse_pt, map_location="cpu", weights_only=True)
+        )
+
         if use_fp16 and device != "cpu":
-            self._model.half()
-        self._model.to(device)
-        self._model.eval()
+            self._backbone.half()
+            self._sparse_linear.half()
+        self._backbone.to(device)
+        self._sparse_linear.to(device)
+        self._backbone.eval()
+        self._sparse_linear.eval()
 
         if torch_compile and device.startswith("cuda"):
-            self._model.model = torch.compile(self._model.model, dynamic=True)
+            self._backbone = torch.compile(self._backbone, dynamic=True)  # type: ignore[assignment]
 
     def _get_tokenizer(self) -> Any:
         """Return a tokenizer private to the calling thread, creating it on first use."""
@@ -68,7 +88,7 @@ class BGEM3Encoder:
                 padding=True,
                 truncation=True,
                 return_tensors="pt",
-                max_length=tok.model_max_length,
+                max_length=self._max_length,
             ),
         )
 
@@ -76,15 +96,12 @@ class BGEM3Encoder:
     def encode_core(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
         """Run the GPU forward pass. Must be called from a single thread."""
         features = {k: v.to(self.device) for k, v in features.items()}
-        output = self._model(
-            text_input=features,
-            return_dense=True,
-            return_sparse=True,
-            return_sparse_embedding=False,  # returns per-token weights [B, L, 1]
-        )
+        last_hidden_state = self._backbone(**features, return_dict=True).last_hidden_state
+        dense = F.normalize(last_hidden_state[:, 0], dim=-1)  # CLS pooling + L2 normalise
+        sparse = torch.relu(self._sparse_linear(last_hidden_state))  # [B, L, 1]
         return {
-            "dense": output["dense_vecs"].detach().cpu(),
-            "sparse": output["sparse_vecs"].squeeze(-1).detach().cpu(),  # [B, L]
+            "dense": dense.detach().cpu(),
+            "sparse": sparse.squeeze(-1).detach().cpu(),  # [B, L]
             "input_ids": features["input_ids"].cpu(),
         }
 

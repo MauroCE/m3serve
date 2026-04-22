@@ -49,6 +49,7 @@ Incoming requests are queued and batched by token length (shorter sequences firs
 | `max_batch_size` | `256` | Maximum sequences per GPU batch |
 | `batch_delay` | `0.005` | Coalescing window in seconds — sleep after first item arrives to let concurrent requests accumulate. Set to ~½ × GPU inference time for your batch size. |
 | `tokenizer_threads` | `4` | Number of threads dedicated to tokenization (`token_lengths`). Each thread holds its own tokenizer copy; all are pre-warmed at `start()` so no cold deepcopy happens during serving. |
+| `max_length` | `8192` | Maximum token length per sequence. Longer inputs are truncated. Lower values reduce memory usage and improve throughput for short-text workloads. |
 
 ## Tuning `batch_delay`
 
