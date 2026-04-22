@@ -208,3 +208,7 @@ __marimo__/
 
 # Claude
 .claude/
+
+# iCloud duplicates
+* 2.py
+*.icloud
