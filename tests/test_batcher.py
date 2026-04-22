@@ -96,3 +96,14 @@ class TestEngine:
         texts = ["one", "two three", "four five six", "seven"]
         result = await engine.embed(texts)
         assert len(result.dense) == len(texts)
+
+    async def test_thread_death_raises_not_hangs(self) -> None:
+        class BrokenEncoder(FakeEncoder):
+            def encode_core(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+                raise RuntimeError("simulated GPU crash")
+
+        e = Engine(_encoder=BrokenEncoder())
+        await e.start()
+        with pytest.raises(RuntimeError, match="simulated GPU crash"):
+            await e.embed(["hello"])
+        await e.stop()
