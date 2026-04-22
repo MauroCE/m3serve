@@ -1,6 +1,8 @@
 # m3serve
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI](https://img.shields.io/pypi/v/m3serve)](https://pypi.org/project/m3serve/)
+[![Python](https://img.shields.io/pypi/pyversions/m3serve)](https://pypi.org/project/m3serve/)
 [![CI](https://github.com/MauroCE/m3serve/actions/workflows/ci.yml/badge.svg)](https://github.com/MauroCE/m3serve/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 Lightweight async inference engine for [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) that returns **dense and sparse embeddings in a single call** — enabling hybrid retrieval without the overhead of a full LLM framework.
 
