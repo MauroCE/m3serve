@@ -48,3 +48,4 @@ Incoming requests are queued and batched by token length (shorter sequences firs
 | `torch_compile` | `False` | `torch.compile` the backbone (CUDA only, adds warmup) |
 | `max_batch_size` | `256` | Maximum sequences per GPU batch |
 | `batch_delay` | `0.005` | Coalescing window in seconds — sleep after first item arrives to let concurrent requests accumulate. Set to ~½ × GPU inference time for your batch size. |
+| `tokenizer_threads` | `4` | Number of threads dedicated to tokenization (`token_lengths`). Each thread holds its own tokenizer copy; all are pre-warmed at `start()` so no cold deepcopy happens during serving. |

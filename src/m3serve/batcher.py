@@ -46,29 +46,41 @@ class Engine:
         torch_compile: bool = False,
         max_batch_size: int = 256,
         batch_delay: float = 0.005,
+        tokenizer_threads: int = 4,
         _encoder: BGEM3Encoder | None = None,
     ) -> None:
         self._encoder = _encoder or BGEM3Encoder(model_name, device, use_fp16, torch_compile)
         self._max_batch_size = max_batch_size
         self._batch_delay = batch_delay
+        self._tokenizer_threads = tokenizer_threads
         self._request_queue: LengthSortedQueue = LengthSortedQueue()
         self._feature_queue: queue.Queue[_Payload] = queue.Queue(maxsize=4)
         self._result_queue: queue.Queue[_Payload] = queue.Queue(maxsize=4)
         self._shutdown = threading.Event()
         self._pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix="m3serve")
+        self._tok_pool = ThreadPoolExecutor(
+            max_workers=tokenizer_threads, thread_name_prefix="m3serve-tok"
+        )
         self._loop: asyncio.AbstractEventLoop | None = None
 
     async def start(self) -> None:
-        """Start background inference threads. Must be called before embed()."""
+        """Start background inference threads and pre-warm tokenizer pool."""
         self._loop = asyncio.get_running_loop()
         self._shutdown.clear()
         for fn in (self._preprocess_thread, self._core_thread, self._postprocess_thread):
             self._pool.submit(fn)
+        # Touch the tokenizer in every tok_pool thread so deepcopy never happens on a live request.
+        warmup = [
+            self._tok_pool.submit(self._encoder.token_lengths, [""])
+            for _ in range(self._tokenizer_threads)
+        ]
+        await asyncio.gather(*[asyncio.wrap_future(f) for f in warmup])
 
     async def stop(self) -> None:
         """Signal threads to stop and wait for them to finish."""
         self._shutdown.set()
         await asyncio.to_thread(self._pool.shutdown, wait=True)
+        await asyncio.to_thread(self._tok_pool.shutdown, wait=True)
 
     async def embed(
         self,
@@ -82,7 +94,9 @@ class Engine:
         which guards against silent thread death.
         """
         assert self._loop is not None, "Call start() before embed()."
-        lengths = await self._loop.run_in_executor(None, self._encoder.token_lengths, texts)
+        lengths = await self._loop.run_in_executor(
+            self._tok_pool, self._encoder.token_lengths, texts
+        )
         future: asyncio.Future[EmbeddingResult] = self._loop.create_future()
         self._request_queue.put(
             _QueueItem(
