@@ -44,3 +44,7 @@ python_version = "3.11"
 [[tool.mypy.overrides]]
 module = "tests.*"
 disable_error_code = ["untyped-decorator"]
+
+[[tool.mypy.overrides]]
+module = ["FlagEmbedding", "FlagEmbedding.*"]
+ignore_missing_imports = true
