@@ -1,7 +1,8 @@
 """Thin wrapper around BGEM3FlagModel exposing a three-stage encode interface."""
 
 import copy
-from typing import cast
+import threading
+from typing import Any, cast
 
 import torch
 from FlagEmbedding import BGEM3FlagModel
@@ -13,7 +14,7 @@ class BGEM3Encoder:
     """Thin wrapper around BGEM3FlagModel exposing a three-stage encode interface.
 
     Stages are designed to run in separate threads:
-        encode_pre  — tokenise on CPU (thread-safe, uses a private tokenizer copy)
+        encode_pre  — tokenise on CPU (thread-safe, each thread owns its tokenizer)
         encode_core — GPU forward pass (single-thread only)
         encode_post — convert tensors to Python lists (CPU, thread-safe)
     """
@@ -39,8 +40,9 @@ class BGEM3Encoder:
             use_fp16=use_fp16 and device != "cpu",
             devices=device,
         )
-        # Private tokenizer copy avoids state corruption across concurrent threads.
-        self._tokenizer = copy.deepcopy(self._embedder.tokenizer)
+        # Template used to cheaply clone a per-thread tokenizer (avoids disk re-load).
+        self._tokenizer_template = copy.deepcopy(self._embedder.tokenizer)
+        self._local = threading.local()
         self._model = self._embedder.model  # EncoderOnlyEmbedderM3ModelForInference
         if use_fp16 and device != "cpu":
             self._model.half()
@@ -50,16 +52,23 @@ class BGEM3Encoder:
         if torch_compile and device.startswith("cuda"):
             self._model.model = torch.compile(self._model.model, dynamic=True)
 
+    def _get_tokenizer(self) -> Any:
+        """Return a tokenizer private to the calling thread, creating it on first use."""
+        if not hasattr(self._local, "tok"):
+            self._local.tok = copy.deepcopy(self._tokenizer_template)
+        return self._local.tok
+
     def encode_pre(self, texts: list[str]) -> dict[str, torch.Tensor]:
         """Tokenise *texts* on CPU. Safe to call from multiple threads."""
+        tok = self._get_tokenizer()
         return cast(
             dict[str, torch.Tensor],
-            self._tokenizer(
+            tok(
                 texts,
                 padding=True,
                 truncation=True,
                 return_tensors="pt",
-                max_length=self._tokenizer.model_max_length,
+                max_length=tok.model_max_length,
             ),
         )
 
@@ -100,7 +109,7 @@ class BGEM3Encoder:
 
     def token_lengths(self, texts: list[str]) -> list[int]:
         """Return the token count for each text (excluding special tokens)."""
-        encoded = self._tokenizer(
+        encoded = self._get_tokenizer()(
             texts,
             add_special_tokens=False,
             return_attention_mask=False,
