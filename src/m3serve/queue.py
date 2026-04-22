@@ -1,6 +1,7 @@
 """Thread-safe queue that yields batches sorted by token length (shortest first)."""
 
 import threading
+import time
 
 from .types import _PrioritizedItem, _QueueItem
 
@@ -27,10 +28,19 @@ class LengthSortedQueue:
             self._items.append(_PrioritizedItem(priority=item.max_length, item=item))
             self._event.set()
 
-    def pop_batch(self, max_size: int, timeout: float = 0.05) -> list[_QueueItem]:
-        """Wait up to *timeout* seconds, then return up to *max_size* items sorted by length."""
+    def pop_batch(
+        self, max_size: int, timeout: float = 0.05, batch_delay: float = 0.0
+    ) -> list[_QueueItem]:
+        """Wait up to *timeout* seconds, then return up to *max_size* items sorted by length.
+
+        *batch_delay* is a coalescing window: after the first item arrives the thread
+        sleeps for this many seconds to let concurrent requests accumulate before the
+        batch is formed.  Set to roughly half the expected GPU inference time.
+        """
         if not self._items:
             self._event.wait(timeout)
+        if self._items and batch_delay > 0:
+            time.sleep(batch_delay)
         with self._lock:
             if not self._items:
                 return []
