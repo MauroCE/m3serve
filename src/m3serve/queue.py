@@ -39,8 +39,8 @@ class LengthSortedQueue:
         """
         if not self._items:
             self._event.wait(timeout)
-        if self._items and batch_delay > 0:
-            time.sleep(batch_delay)
+            if self._items and batch_delay > 0:
+                time.sleep(batch_delay)
         with self._lock:
             if not self._items:
                 return []
