@@ -45,10 +45,12 @@ class Engine:
         use_fp16: bool = True,
         torch_compile: bool = False,
         max_batch_size: int = 256,
+        batch_delay: float = 0.005,
         _encoder: BGEM3Encoder | None = None,
     ) -> None:
         self._encoder = _encoder or BGEM3Encoder(model_name, device, use_fp16, torch_compile)
         self._max_batch_size = max_batch_size
+        self._batch_delay = batch_delay
         self._request_queue: LengthSortedQueue = LengthSortedQueue()
         self._feature_queue: queue.Queue[_Payload] = queue.Queue(maxsize=4)
         self._result_queue: queue.Queue[_Payload] = queue.Queue(maxsize=4)
@@ -96,7 +98,7 @@ class Engine:
 
     def _preprocess_thread(self) -> None:
         while not self._shutdown.is_set():
-            batch = self._request_queue.pop_batch(self._max_batch_size, _TIMEOUT)
+            batch = self._request_queue.pop_batch(self._max_batch_size, _TIMEOUT, self._batch_delay)
             if not batch:
                 continue
             try:
