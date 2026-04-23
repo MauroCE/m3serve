@@ -3,8 +3,9 @@
 [![Python](https://img.shields.io/pypi/pyversions/m3serve)](https://pypi.org/project/m3serve/)
 [![CI](https://github.com/MauroCE/m3serve/actions/workflows/ci.yml/badge.svg)](https://github.com/MauroCE/m3serve/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 
-Lightweight async inference engine for [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) that returns **dense and sparse embeddings in a single call** — enabling hybrid retrieval without the overhead of a full LLM framework.
+Lightweight async inference engine for [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) that returns **dense and sparse embeddings in a single call**.
 
 ## Install
 
@@ -38,7 +39,7 @@ Thread 2  encode_core  GPU forward pass    ◄──┘  └──►
 Thread 3  encode_post  convert to Python lists       └──► resolved Future
 ```
 
-Incoming requests are queued and batched by token length (shorter sequences first) to minimise padding waste. Each `embed()` call is a coroutine that returns as soon as its batch is processed — no polling, no callbacks.
+Incoming requests are queued and batched by token length (shorter sequences first) to minimise padding waste. Each `embed()` call is a coroutine that returns as soon as its batch is processed: no polling, no callbacks.
 
 ## Options
 
@@ -49,7 +50,7 @@ Incoming requests are queued and batched by token length (shorter sequences firs
 | `use_fp16` | `True` | Half-precision inference (ignored on CPU) |
 | `torch_compile` | `False` | `torch.compile` the backbone (CUDA only, adds warmup) |
 | `max_batch_size` | `256` | Maximum sequences per GPU batch |
-| `batch_delay` | `0.005` | Coalescing window in seconds — sleep after first item arrives to let concurrent requests accumulate. Set to ~½ × GPU inference time for your batch size. |
+| `batch_delay` | `0.005` | Coalescing window in seconds — sleep after first item arrives to let concurrent requests accumulate. Set to ~0.5 x GPU inference time for your batch size. |
 | `tokenizer_threads` | `4` | Number of threads dedicated to tokenization (`token_lengths`). Each thread holds its own tokenizer copy; all are pre-warmed at `start()` so no cold deepcopy happens during serving. |
 | `max_length` | `8192` | Maximum token length per sequence. Longer inputs are truncated. Lower values reduce memory usage and improve throughput for short-text workloads. |
 
@@ -93,3 +94,41 @@ inference server.
 
 # Notebooks / Tutorials
 - `m3serve` generates identical sparse and dense vectors to FlagEmbedding. [Colab Notebook](https://colab.research.google.com/drive/1StwAXVNOLWYPkH0Gng_1pVxFkDE5hcy_?usp=sharing)
+- `m3serve` benchmark against FlagEmbedding on Colab's free T4 GPU. [Colab Notebook](https://colab.research.google.com/drive/12ROy5q6YoGnNzEsY8WMi-86HJXCnXyjF?usp=sharing)
+
+# Benchmark Results
+Benchmark results on Colab's free T4 GPU. Better hardware should lead to better results.
+
+- **Up to 58% higher throughput than FlagEmbedding** at every batch size (1705 vs 1079 t/s at batch=128), thanks to the pipelined CPU/GPU architecture.
+- **Dynamic batching absorbs concurrency with minimal latency cost**: p50 rises from 18.9ms at c=1 to just 31.7ms at c=32, while throughput scales ~19x.
+- **p99 latency stays under 64ms up to c=32**, but the 5ms coalescing window adds fixed overhead at low concurrency; use `Engine(batch_delay=0)` for single-client workloads.
+
+```bash
+===========================================================================
+BATCH SIZE SWEEP  (baseline, sequential)
+===========================================================================
+baseline  batch_size=1                    throughput=   27.7 t/s  p50=  33.0ms  p99=  59.1ms
+baseline  batch_size=8                    throughput=  216.3 t/s  p50=  36.1ms  p99=  51.5ms
+baseline  batch_size=32                   throughput=  807.5 t/s  p50=  39.6ms  p99=  52.1ms
+baseline  batch_size=64                   throughput=  932.3 t/s  p50=  71.3ms  p99=  74.2ms
+baseline  batch_size=128                  throughput= 1079.0 t/s  p50= 132.7ms  p99= 135.0ms
+
+===========================================================================
+BATCH SIZE SWEEP  (m3serve, concurrency=1)
+===========================================================================
+m3serve   batch_size=1                    throughput=   38.8 t/s  p50=  20.0ms  p99=  66.4ms
+m3serve   batch_size=8                    throughput=  360.2 t/s  p50=  20.5ms  p99=  54.3ms
+m3serve   batch_size=32                   throughput= 1035.6 t/s  p50=  30.9ms  p99=  41.4ms
+m3serve   batch_size=64                   throughput= 1419.7 t/s  p50=  46.5ms  p99=  54.9ms
+m3serve   batch_size=128                  throughput= 1705.0 t/s  p50=  81.9ms  p99=  90.1ms
+
+===========================================================================
+CONCURRENCY SWEEP  (m3serve, batch_size=1 per caller)
+===========================================================================
+m3serve   concurrency=1                   throughput=   47.4 t/s  p50=  18.9ms  p99=  32.4ms
+m3serve   concurrency=2                   throughput=   89.5 t/s  p50=  19.5ms  p99=  33.8ms
+m3serve   concurrency=4                   throughput=  194.7 t/s  p50=  20.1ms  p99=  28.3ms
+m3serve   concurrency=8                   throughput=  356.0 t/s  p50=  21.8ms  p99=  34.6ms
+m3serve   concurrency=16                  throughput=  538.8 t/s  p50=  28.6ms  p99=  38.6ms
+m3serve   concurrency=32                  throughput=  906.3 t/s  p50=  31.7ms  p99=  63.6ms
+```
