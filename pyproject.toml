@@ -26,6 +26,9 @@ dependencies = [
     "transformers>=4.44,<5",
 ]
 
+[project.optional-dependencies]
+flash-attn = ["flash-attn>=2.6"]
+
 [project.urls]
 Homepage = "https://github.com/MauroCE/m3serve"
 Repository = "https://github.com/MauroCE/m3serve"
