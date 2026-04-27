@@ -134,6 +134,7 @@ inference server.
 # Notebooks / Tutorials
 - `m3serve` generates identical sparse and dense vectors to FlagEmbedding. [Colab Notebook](https://colab.research.google.com/drive/1StwAXVNOLWYPkH0Gng_1pVxFkDE5hcy_?usp=sharing)
 - `m3serve` benchmark against FlagEmbedding on Colab's free T4 GPU. [Colab Notebook](https://colab.research.google.com/drive/12ROy5q6YoGnNzEsY8WMi-86HJXCnXyjF?usp=sharing)
+-  `m3serve` GPU memory profiling across batch sizes, sequence lengths, and concurrency. [Colab Notebook](https://colab.research.google.com/drive/1qNUjQSk3Nj65sSFS94LEUJd9MU72HuyY?usp=sharing)
 
 # Benchmark Results
 Benchmark results on Colab's free T4 GPU. Better hardware should lead to better results.
