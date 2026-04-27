@@ -142,28 +142,28 @@ Benchmark results on Colab's free T4 GPU. Better hardware should lead to better 
 ===========================================================================
 BATCH SIZE SWEEP  (baseline, sequential)
 ===========================================================================
-baseline  batch_size=1                    throughput=   27.7 t/s  p50=  33.0ms  p99=  59.1ms
-baseline  batch_size=8                    throughput=  216.3 t/s  p50=  36.1ms  p99=  51.5ms
-baseline  batch_size=32                   throughput=  807.5 t/s  p50=  39.6ms  p99=  52.1ms
-baseline  batch_size=64                   throughput=  932.3 t/s  p50=  71.3ms  p99=  74.2ms
-baseline  batch_size=128                  throughput= 1079.0 t/s  p50= 132.7ms  p99= 135.0ms
+baseline  batch_size=1                    throughput=   22.6 t/s  p50=  32.7ms  p99= 230.5ms
+baseline  batch_size=8                    throughput=  188.7 t/s  p50=  36.6ms  p99=  68.2ms
+baseline  batch_size=32                   throughput=  801.7 t/s  p50=  40.1ms  p99=  49.3ms
+baseline  batch_size=64                   throughput=  930.2 t/s  p50=  72.3ms  p99=  74.3ms
+baseline  batch_size=128                  throughput= 1083.6 t/s  p50= 132.2ms  p99= 134.3ms
 
 ===========================================================================
 BATCH SIZE SWEEP  (m3serve, concurrency=1)
 ===========================================================================
-m3serve   batch_size=1                    throughput=   38.8 t/s  p50=  20.0ms  p99=  66.4ms
-m3serve   batch_size=8                    throughput=  360.2 t/s  p50=  20.5ms  p99=  54.3ms
-m3serve   batch_size=32                   throughput= 1035.6 t/s  p50=  30.9ms  p99=  41.4ms
-m3serve   batch_size=64                   throughput= 1419.7 t/s  p50=  46.5ms  p99=  54.9ms
-m3serve   batch_size=128                  throughput= 1705.0 t/s  p50=  81.9ms  p99=  90.1ms
+m3serve   batch_size=1                    throughput=   42.6 t/s  p50=  19.1ms  p99=  43.2ms
+m3serve   batch_size=8                    throughput=  381.1 t/s  p50=  19.8ms  p99=  34.1ms
+m3serve   batch_size=32                   throughput= 1292.1 t/s  p50=  25.2ms  p99=  28.6ms
+m3serve   batch_size=64                   throughput= 1603.9 t/s  p50=  41.7ms  p99=  43.6ms
+m3serve   batch_size=128                  throughput= 1893.4 t/s  p50=  75.6ms  p99=  79.0ms
 
 ===========================================================================
 CONCURRENCY SWEEP  (m3serve, batch_size=1 per caller)
 ===========================================================================
-m3serve   concurrency=1                   throughput=   47.4 t/s  p50=  18.9ms  p99=  32.4ms
-m3serve   concurrency=2                   throughput=   89.5 t/s  p50=  19.5ms  p99=  33.8ms
-m3serve   concurrency=4                   throughput=  194.7 t/s  p50=  20.1ms  p99=  28.3ms
-m3serve   concurrency=8                   throughput=  356.0 t/s  p50=  21.8ms  p99=  34.6ms
-m3serve   concurrency=16                  throughput=  538.8 t/s  p50=  28.6ms  p99=  38.6ms
-m3serve   concurrency=32                  throughput=  906.3 t/s  p50=  31.7ms  p99=  63.6ms
+m3serve   concurrency=1                   throughput=   46.6 t/s  p50=  19.2ms  p99=  33.9ms
+m3serve   concurrency=2                   throughput=   90.6 t/s  p50=  19.7ms  p99=  33.0ms
+m3serve   concurrency=4                   throughput=  179.9 t/s  p50=  20.7ms  p99=  37.1ms
+m3serve   concurrency=8                   throughput=  354.4 t/s  p50=  22.2ms  p99=  32.4ms
+m3serve   concurrency=16                  throughput=  629.9 t/s  p50=  25.2ms  p99=  34.4ms
+m3serve   concurrency=32                  throughput=  946.5 t/s  p50=  34.0ms  p99=  44.8ms
 ```
