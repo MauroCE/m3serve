@@ -48,10 +48,16 @@ class Engine:
         batch_delay: float = 0.005,
         tokenizer_threads: int = 4,
         max_length: int = 8192,
+        attn_implementation: str | None = None,
         _encoder: BGEM3Encoder | None = None,
     ) -> None:
+        """Configure the engine.
+
+        *attn_implementation* is forwarded to BGEM3Encoder; pass None (default) to
+        auto-select the fastest attention backend for the current hardware.
+        """
         self._encoder = _encoder or BGEM3Encoder(
-            model_name, device, use_fp16, torch_compile, max_length
+            model_name, device, use_fp16, torch_compile, max_length, attn_implementation
         )
         self._max_batch_size = max_batch_size
         self._batch_delay = batch_delay
@@ -114,6 +120,7 @@ class Engine:
     # -- background threads --------------------------------------------------
 
     def _preprocess_thread(self) -> None:
+        """Drain the request queue, tokenise each batch, and push features downstream."""
         while not self._shutdown.is_set():
             batch = self._request_queue.pop_batch(self._max_batch_size, _TIMEOUT, self._batch_delay)
             if not batch:
@@ -131,6 +138,7 @@ class Engine:
                 self._reject(batch, exc)
 
     def _core_thread(self) -> None:
+        """Pull tokenised features, run the GPU forward pass, and push raw outputs."""
         while not self._shutdown.is_set():
             try:
                 features, items, return_sparse = self._feature_queue.get(timeout=_TIMEOUT)
@@ -144,6 +152,7 @@ class Engine:
                 self._reject(items, exc)
 
     def _postprocess_thread(self) -> None:
+        """Convert raw tensors to EmbeddingResults and resolve caller futures."""
         while not self._shutdown.is_set():
             try:
                 raw, items, return_sparse = self._result_queue.get(timeout=_TIMEOUT)

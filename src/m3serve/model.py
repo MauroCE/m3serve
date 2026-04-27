@@ -166,7 +166,7 @@ class BGEM3Encoder:
                 device = "cpu"
         self.device = device
 
-        # Tokenizer -- template is deepcopied per thread inside _get_tokenizer.
+        # Tokenizer. Template is deepcopied per thread inside _get_tokenizer.
         self._tokenizer_template = AutoTokenizer.from_pretrained(model_name)
         self._local = threading.local()
         self._max_length = max_length
@@ -184,7 +184,7 @@ class BGEM3Encoder:
         hidden_size = int(getattr(_backbone.config, "hidden_size"))
         self._backbone: nn.Module = _backbone
 
-        # Sparse linear head -- Linear(hidden_size, 1), weights shipped with the model.
+        # Sparse linear head. Linear(hidden_size, 1), weights shipped with the model.
         self._sparse_linear = nn.Linear(hidden_size, 1)
         sparse_pt = (
             os.path.join(model_name, "sparse_linear.pt")
