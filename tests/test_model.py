@@ -30,6 +30,19 @@ class TestEncodePost:
             "input_ids": torch.arange(batch * seq_len).reshape(batch, seq_len),
         }
 
+    def _raw_colbert(
+        self, batch: int = 2, seq_len: int = 5, dense_dim: int = 4
+    ) -> dict[str, torch.Tensor]:
+        # seq 0: fully real; seq 1: last 2 positions are padding
+        attention_mask = torch.ones(batch, seq_len, dtype=torch.long)
+        if batch >= 2:
+            attention_mask[1, -2:] = 0
+        return {
+            "dense": torch.rand(batch, dense_dim),
+            "colbert": torch.rand(batch, seq_len - 1, dense_dim),
+            "attention_mask": attention_mask,
+        }
+
     def test_dense_only_returns_no_sparse(self, encoder: BareEncoder) -> None:
         raw = self._raw()
         result = encoder.encode_post(raw, return_sparse=False)
@@ -70,3 +83,29 @@ class TestEncodePost:
         raw = self._raw()
         result = encoder.encode_post(raw, return_sparse=False)
         assert isinstance(result, EmbeddingResult)
+
+    def test_colbert_none_by_default(self, encoder: BareEncoder) -> None:
+        raw = self._raw_colbert()
+        result = encoder.encode_post(raw, return_sparse=False, return_colbert=False)
+        assert result.colbert_vecs is None
+
+    def test_colbert_batch_size(self, encoder: BareEncoder) -> None:
+        raw = self._raw_colbert(batch=2, seq_len=5, dense_dim=4)
+        result = encoder.encode_post(raw, return_sparse=False, return_colbert=True)
+        assert result.colbert_vecs is not None
+        assert len(result.colbert_vecs) == 2
+
+    def test_colbert_strips_padding(self, encoder: BareEncoder) -> None:
+        # seq 0: seq_len=5, all real -> attention_mask[:,1:] sums to 4
+        # seq 1: seq_len=5, last 2 padding -> attention_mask[:,1:] sums to 2
+        raw = self._raw_colbert(batch=2, seq_len=5, dense_dim=4)
+        result = encoder.encode_post(raw, return_sparse=False, return_colbert=True)
+        assert result.colbert_vecs is not None
+        assert len(result.colbert_vecs[0]) == 4
+        assert len(result.colbert_vecs[1]) == 2
+
+    def test_colbert_vector_dim(self, encoder: BareEncoder) -> None:
+        raw = self._raw_colbert(batch=1, seq_len=4, dense_dim=8)
+        result = encoder.encode_post(raw, return_sparse=False, return_colbert=True)
+        assert result.colbert_vecs is not None
+        assert all(len(vec) == 8 for vec in result.colbert_vecs[0])

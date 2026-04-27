@@ -6,7 +6,7 @@
 [![uv](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/uv/main/assets/badge/v0.json)](https://github.com/astral-sh/uv)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
-Lightweight async inference engine for [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) that returns **dense and sparse embeddings in a single call**.
+Lightweight async inference engine for [BAAI/bge-m3](https://huggingface.co/BAAI/bge-m3) that returns **dense, sparse, and ColBERT multi-vector embeddings in a single call**.
 
 ## Install
 
@@ -22,10 +22,11 @@ from m3serve import Engine
 engine = Engine(model_name="BAAI/bge-m3", use_fp16=True)
 await engine.start()
 
-result = await engine.embed(["hello world"], return_sparse=True)
-# result.dense            -> list[list[float]]  (1024-dim)
-# result.sparse_indices   -> list[list[int]]    (token ids with non-zero weight)
-# result.sparse_weights   -> list[list[float]]  (corresponding weights)
+result = await engine.embed(["hello world"], return_sparse=True, return_colbert=True)
+# result.dense            -> list[list[float]]        (1024-dim, one vector per text)
+# result.sparse_indices   -> list[list[int]]          (token ids with non-zero weight)
+# result.sparse_weights   -> list[list[float]]        (corresponding weights)
+# result.colbert_vecs     -> list[list[list[float]]]  (one 1024-dim vector per token, padding stripped)
 
 await engine.stop()
 ```
@@ -55,6 +56,8 @@ Incoming requests are queued and batched by token length (shorter sequences firs
 | `tokenizer_threads` | `4` | Number of threads dedicated to tokenization (`token_lengths`). Each thread holds its own tokenizer copy; all are pre-warmed at `start()` so no cold deepcopy happens during serving. |
 | `max_length` | `8192` | Maximum token length per sequence. Longer inputs are truncated. Lower values reduce memory usage and improve throughput for short-text workloads. |
 | `attn_implementation` | `None` (auto) | Attention backend: `"flash_attention_2"`, `"flash_attention_3"`, `"sdpa"`, or `"eager"`. `None` auto-selects the fastest supported option. |
+| `return_sparse` | `False` | Return sparse (lexical) weights alongside dense vectors. Passed to `embed()`, not `Engine()`. |
+| `return_colbert` | `False` | Return ColBERT multi-vector embeddings alongside dense vectors. Passed to `embed()`, not `Engine()`. |
 
 ## Tuning `batch_delay`
 
