@@ -53,6 +53,7 @@ Incoming requests are queued and batched by token length (shorter sequences firs
 | `batch_delay` | `0.005` | Coalescing window in seconds — sleep after first item arrives to let concurrent requests accumulate. Set to ~0.5 x GPU inference time for your batch size. |
 | `tokenizer_threads` | `4` | Number of threads dedicated to tokenization (`token_lengths`). Each thread holds its own tokenizer copy; all are pre-warmed at `start()` so no cold deepcopy happens during serving. |
 | `max_length` | `8192` | Maximum token length per sequence. Longer inputs are truncated. Lower values reduce memory usage and improve throughput for short-text workloads. |
+| `attn_implementation` | `None` (auto) | Attention backend: `"flash_attention_2"`, `"flash_attention_3"`, `"sdpa"`, or `"eager"`. `None` auto-selects the fastest supported option. |
 
 ## Tuning `batch_delay`
 
@@ -70,6 +71,40 @@ A good starting value is roughly half your typical GPU inference time.
 This heuristic is also used by
 [Infinity-emb](https://github.com/michaelfeil/infinity) and mirrors
 Triton's [`max_queue_delay_microseconds`](https://docs.nvidia.com/deeplearning/triton-inference-server/user-guide/docs/user_guide/batcher.html).
+
+## Flash Attention
+
+[Flash Attention](https://github.com/Dao-AILab/flash-attention) is an optimised attention algorithm that is significantly faster and more memory-efficient than standard attention, especially for long sequences. m3serve supports [FA2](https://arxiv.org/abs/2307.08691) (Ampere GPUs and newer, e.g. A100, RTX 3090) and [FA3](https://arxiv.org/abs/2407.08608) (Hopper GPUs, e.g. H100).
+
+By default, m3serve **auto-selects the best available option** for your hardware, no configuration needed. If `flash-attn` is installed and your GPU supports it, FA2 or FA3 will be used automatically. Otherwise it falls back to PyTorch's built-in [SDPA](https://huggingface.co/docs/transformers/perf_infer_gpu_one#pytorch-scaled-dot-product-attention) kernel, which is always available.
+
+To enable FA2/FA3, install the optional dependency:
+
+```bash
+pip install m3serve[flash-attn]
+```
+
+You can also control the attention implementation explicitly:
+
+```python
+# Auto (default) picks the best option for your hardware
+engine = Engine(attn_implementation=None)
+
+# Force a specific backend
+engine = Engine(attn_implementation="flash_attention_2")
+engine = Engine(attn_implementation="flash_attention_3")
+engine = Engine(attn_implementation="sdpa")
+engine = Engine(attn_implementation="eager")
+```
+
+If you request FA2/FA3 but your GPU or packages cannot support it, m3serve raises a clear error explaining exactly what is missing. The hardware check uses `torch.cuda.get_device_capability()` to inspect the GPU's compute capability directly — no guesswork.
+
+| Backend | Hardware required | Package required |
+|---|---|---|
+| `flash_attention_3` | Hopper+ (SM 9.0, e.g. H100) | `flash-attn >= 3.x` |
+| `flash_attention_2` | Ampere+ (SM 8.0, e.g. A100, RTX 3090) | `flash-attn` |
+| `sdpa` | Any (CPU, MPS, CUDA) | none |
+| `eager` | Any | none |
 
 ## Limitations
 
