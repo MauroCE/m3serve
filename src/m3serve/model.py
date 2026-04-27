@@ -184,7 +184,7 @@ class BGEM3Encoder:
         hidden_size = int(getattr(_backbone.config, "hidden_size"))
         self._backbone: nn.Module = _backbone
 
-        # Sparse linear head. Linear(hidden_size, 1), weights shipped with the model.
+        # Sparse head: Linear(hidden_size, 1), weights shipped with the model.
         self._sparse_linear = nn.Linear(hidden_size, 1)
         sparse_pt = (
             os.path.join(model_name, "sparse_linear.pt")
@@ -195,13 +195,27 @@ class BGEM3Encoder:
             torch.load(sparse_pt, map_location="cpu", weights_only=True)
         )
 
-        # Backbone dtype is already set via torch_dtype above; only sparse_linear needs casting.
+        # ColBERT head: Linear(hidden_size, hidden_size), weights shipped with the model.
+        self._colbert_linear = nn.Linear(hidden_size, hidden_size)
+        colbert_pt = (
+            os.path.join(model_name, "colbert_linear.pt")
+            if os.path.isdir(model_name)
+            else hf_hub_download(repo_id=model_name, filename="colbert_linear.pt")
+        )
+        self._colbert_linear.load_state_dict(
+            torch.load(colbert_pt, map_location="cpu", weights_only=True)
+        )
+
+        # Backbone dtype is already set via torch_dtype above; only the heads need casting.
         if use_fp16 and device != "cpu":
             self._sparse_linear.half()
+            self._colbert_linear.half()
         self._backbone.to(device)
         self._sparse_linear.to(device)
+        self._colbert_linear.to(device)
         self._backbone.eval()
         self._sparse_linear.eval()
+        self._colbert_linear.eval()
 
         if torch_compile and device.startswith("cuda"):
             self._backbone = torch.compile(self._backbone, dynamic=True)  # type: ignore[assignment]
@@ -227,35 +241,67 @@ class BGEM3Encoder:
         )
 
     @torch.inference_mode()
-    def encode_core(self, features: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
-        """Run the GPU forward pass. Must be called from a single thread."""
+    def encode_core(
+        self,
+        features: dict[str, torch.Tensor],
+        return_sparse: bool = True,
+        return_colbert: bool = False,
+    ) -> dict[str, torch.Tensor]:
+        """Run the GPU forward pass. Must be called from a single thread.
+
+        Only the heads that are actually needed are computed, so callers that
+        do not request sparse or ColBERT output pay no extra cost.
+        """
         features = {k: v.to(self.device) for k, v in features.items()}
         last_hidden_state = self._backbone(**features, return_dict=True).last_hidden_state
-        dense = F.normalize(last_hidden_state[:, 0], dim=-1)  # CLS pooling + L2 normalise
-        sparse = torch.relu(self._sparse_linear(last_hidden_state))  # [B, L, 1]
-        return {
-            "dense": dense.detach().cpu(),
-            "sparse": sparse.squeeze(-1).detach().cpu(),  # [B, L]
-            "input_ids": features["input_ids"].cpu(),
-        }
+        dense = F.normalize(last_hidden_state[:, 0], dim=-1)  # CLS token, L2-normalised
+        raw: dict[str, torch.Tensor] = {"dense": dense.detach().cpu()}
 
-    def encode_post(self, raw: dict[str, torch.Tensor], return_sparse: bool) -> EmbeddingResult:
+        if return_sparse:
+            sparse = torch.relu(self._sparse_linear(last_hidden_state))
+            raw["sparse"] = sparse.squeeze(-1).detach().cpu()  # [B, L]
+            raw["input_ids"] = features["input_ids"].cpu()
+
+        if return_colbert:
+            # Exclude CLS ([:, 1:]), project, L2-normalise, zero padding tokens.
+            colbert = F.normalize(self._colbert_linear(last_hidden_state[:, 1:]), dim=-1)
+            mask = features["attention_mask"][:, 1:].unsqueeze(-1).float()
+            raw["colbert"] = (colbert * mask).detach().cpu()
+            raw["attention_mask"] = features["attention_mask"].cpu()
+
+        return raw
+
+    def encode_post(
+        self,
+        raw: dict[str, torch.Tensor],
+        return_sparse: bool,
+        return_colbert: bool = False,
+    ) -> EmbeddingResult:
         """Convert raw tensors to an EmbeddingResult. Safe to call from multiple threads."""
         dense = raw["dense"].float().tolist()
 
-        if not return_sparse:
-            return EmbeddingResult(dense=dense, sparse_indices=None, sparse_weights=None)
+        sparse_indices: list[list[int]] | None = None
+        sparse_weights: list[list[float]] | None = None
+        colbert_vecs: list[list[list[float]]] | None = None
 
-        sparse_indices, sparse_weights = [], []
-        for weights_row, ids_row in zip(raw["sparse"], raw["input_ids"]):
-            mask = weights_row > 0
-            sparse_indices.append(ids_row[mask].tolist())
-            sparse_weights.append(weights_row[mask].float().tolist())
+        if return_sparse:
+            sparse_indices, sparse_weights = [], []
+            for weights_row, ids_row in zip(raw["sparse"], raw["input_ids"]):
+                mask = weights_row > 0
+                sparse_indices.append(ids_row[mask].tolist())
+                sparse_weights.append(weights_row[mask].float().tolist())
+
+        if return_colbert:
+            colbert_vecs = []
+            for vecs, mask_row in zip(raw["colbert"], raw["attention_mask"][:, 1:]):
+                n_real = int(mask_row.sum().item())  # strip padding tokens
+                colbert_vecs.append(vecs[:n_real].float().tolist())
 
         return EmbeddingResult(
             dense=dense,
             sparse_indices=sparse_indices,
             sparse_weights=sparse_weights,
+            colbert_vecs=colbert_vecs,
         )
 
     def token_lengths(self, texts: list[str]) -> list[int]:

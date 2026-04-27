@@ -12,6 +12,7 @@ class EmbeddingResult(BaseModel):
     dense: list[list[float]]
     sparse_indices: list[list[int]] | None = None
     sparse_weights: list[list[float]] | None = None
+    colbert_vecs: list[list[list[float]]] | None = None
 
 
 @dataclass
@@ -22,11 +23,12 @@ class _QueueItem:
     return_sparse: bool
     future: asyncio.Future  # type: ignore[type-arg]
     max_length: int = 0  # longest token count in texts
+    return_colbert: bool = False
 
 
 @dataclass(order=True)
 class _PrioritizedItem:
     """Wraps a _QueueItem with a sort key for length-sorted batching."""
 
-    priority: int  # token length — shorter sequences first
+    priority: int  # token length, shorter sequences first
     item: _QueueItem = field(compare=False)

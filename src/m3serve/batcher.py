@@ -12,8 +12,8 @@ from .model import BGEM3Encoder
 from .queue import LengthSortedQueue
 from .types import EmbeddingResult, _QueueItem
 
-# (features_or_raw, items, return_sparse)
-_Payload = tuple[dict[str, torch.Tensor], list[_QueueItem], bool]
+# (features_or_raw, items, return_sparse, return_colbert)
+_Payload = tuple[dict[str, torch.Tensor], list[_QueueItem], bool, bool]
 
 _TIMEOUT = 0.05
 logger = logging.getLogger(__name__)
@@ -95,9 +95,10 @@ class Engine:
         self,
         texts: list[str],
         return_sparse: bool = False,
+        return_colbert: bool = False,
         timeout: float = 60.0,
     ) -> EmbeddingResult:
-        """Embed *texts*, optionally returning sparse (lexical) weights alongside dense vectors.
+        """Embed *texts*, optionally returning sparse and/or ColBERT multi-vector embeddings.
 
         Raises asyncio.TimeoutError if no result is returned within *timeout* seconds,
         which guards against silent thread death.
@@ -111,6 +112,7 @@ class Engine:
             _QueueItem(
                 texts=texts,
                 return_sparse=return_sparse,
+                return_colbert=return_colbert,
                 future=future,
                 max_length=max(lengths, default=0),
             )
@@ -126,13 +128,15 @@ class Engine:
             if not batch:
                 continue
             try:
-                groups: dict[bool, list[_QueueItem]] = {}
+                groups: dict[tuple[bool, bool], list[_QueueItem]] = {}
                 for item in batch:
-                    groups.setdefault(item.return_sparse, []).append(item)
-                for return_sparse, items in groups.items():
+                    groups.setdefault((item.return_sparse, item.return_colbert), []).append(item)
+                for (return_sparse, return_colbert), items in groups.items():
                     all_texts = [t for item in items for t in item.texts]
                     features = self._encoder.encode_pre(all_texts)
-                    self._enqueue(self._feature_queue, (features, items, return_sparse))
+                    self._enqueue(
+                        self._feature_queue, (features, items, return_sparse, return_colbert)
+                    )
             except Exception as exc:
                 logger.exception("encode_pre failed")
                 self._reject(batch, exc)
@@ -141,12 +145,14 @@ class Engine:
         """Pull tokenised features, run the GPU forward pass, and push raw outputs."""
         while not self._shutdown.is_set():
             try:
-                features, items, return_sparse = self._feature_queue.get(timeout=_TIMEOUT)
+                features, items, return_sparse, return_colbert = self._feature_queue.get(
+                    timeout=_TIMEOUT
+                )
             except queue.Empty:
                 continue
             try:
-                raw = self._encoder.encode_core(features)
-                self._enqueue(self._result_queue, (raw, items, return_sparse))
+                raw = self._encoder.encode_core(features, return_sparse, return_colbert)
+                self._enqueue(self._result_queue, (raw, items, return_sparse, return_colbert))
             except Exception as exc:
                 logger.exception("encode_core failed")
                 self._reject(items, exc)
@@ -155,7 +161,7 @@ class Engine:
         """Convert raw tensors to EmbeddingResults and resolve caller futures."""
         while not self._shutdown.is_set():
             try:
-                raw, items, return_sparse = self._result_queue.get(timeout=_TIMEOUT)
+                raw, items, return_sparse, return_colbert = self._result_queue.get(timeout=_TIMEOUT)
             except queue.Empty:
                 continue
             try:
@@ -163,7 +169,9 @@ class Engine:
                 for item in items:
                     n = len(item.texts)
                     sliced = {k: v[offset : offset + n] for k, v in raw.items()}
-                    result = self._encoder.encode_post(sliced, item.return_sparse)
+                    result = self._encoder.encode_post(
+                        sliced, item.return_sparse, item.return_colbert
+                    )
                     offset += n
                     assert self._loop is not None
                     self._loop.call_soon_threadsafe(item.future.set_result, result)

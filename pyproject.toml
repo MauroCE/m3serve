@@ -1,6 +1,6 @@
 [project]
 name = "m3serve"
-version = "0.2.0"
+version = "0.2.1"
 description = "High-throughput BGE-M3 inference engine with dense + sparse embeddings"
 readme = "README.md"
 authors = [
@@ -63,7 +63,7 @@ python_version = "3.11"
 
 [[tool.mypy.overrides]]
 module = "tests.*"
-disable_error_code = ["untyped-decorator"]
+disable_error_code = ["untyped-decorator", "misc"]
 
 [[tool.mypy.overrides]]
 module = "m3serve.model"
