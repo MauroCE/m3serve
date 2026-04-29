@@ -110,6 +110,8 @@ If you request FA2/FA3 but your GPU or packages cannot support it, m3serve raise
 | `sdpa` | Any (CPU, MPS, CUDA) | none |
 | `eager` | Any | none |
 
+Note: FA2/FA3 require `transformers>=5` (where XLM-Roberta got refactored onto `AttentionInterface`)
+ on `transformers<5` the engine silently falls back to SDPA.
 ## Limitations
 
 **Single model, single GPU.** m3serve runs one bge-m3 instance on one GPU.
