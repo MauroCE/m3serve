@@ -6,7 +6,15 @@ on:
 
 jobs:
   lint-type-test:
+    name: lint-type-test (transformers ${{ matrix.major }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { major: "4", spec: ">=4.44,<5" }
+          - { major: "5", spec: ">=5,<6" }
 
     steps:
       - name: Checkout
@@ -22,6 +30,9 @@ jobs:
 
       - name: Sync dependencies (including dev)
         run: uv sync --dev
+
+      - name: Pin transformers (matrix)
+        run: uv pip install "transformers${{ matrix.spec }}"
 
       - name: Ruff
         run: uv run ruff check .

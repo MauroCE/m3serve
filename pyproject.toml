@@ -1,6 +1,6 @@
 [project]
 name = "m3serve"
-version = "0.2.2"
+version = "0.2.3"
 description = "High-throughput BGE-M3 inference engine with dense + sparse embeddings"
 readme = "README.md"
 authors = [
@@ -23,7 +23,7 @@ dependencies = [
     "huggingface-hub>=0.19",
     "pydantic>=2.13.3",
     "torch>=2.1",
-    "transformers>=4.44,<5",
+    "transformers>=4.44",
 ]
 
 [project.optional-dependencies]
