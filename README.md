@@ -112,6 +112,32 @@ If you request FA2/FA3 but your GPU or packages cannot support it, m3serve raise
 
 Note: FA2/FA3 require `transformers>=5` (where XLM-Roberta got refactored onto `AttentionInterface`)
  on `transformers<5` the engine silently falls back to SDPA.
+
+## Memory: FA2 vs eager attention in m3serve
+
+On A10G (24 GB, fp16) with `max_length=8192`, FlashAttention-2 reduces peak VRAM by 17–83% over eager attention at production batch sizes (L >= 2048), and makes workloads runnable that eager cannot fit on the same GPU at all (L=2048 / B=128, and L=8192 for B >= 8). Below L=512 the difference is small: short sequences are dominated by FFN and embedding cost, not attention. FA2's value scales with sequence length, exactly as the O(L**2) -> O(L) attention-memory transition predicts.
+
+| Max length | Batch size | Peak VRAM, eager (MB) | Peak VRAM, FA2 (MB) | VRAM reduction | Latency, eager (ms) | Latency, FA2 (ms) | Speedup |
+|---:|---:|---:|---:|---:|---:|---:|---:|
+| 128 | 1 | 1,097 | 1,096 | 0.0% | 17 | 18 | 0.97× |
+| 128 | 8 | 1,119 | 1,115 | 0.4% | 26 | 24 | 1.07× |
+| 128 | 32 | 1,197 | 1,181 | 1.3% | 81 | 74 | 1.11× |
+| 128 | 128 | 1,509 | 1,445 | 4.2% | 281 | 250 | 1.12× |
+| 512 | 1 | 1,114 | 1,104 | 0.9% | 25 | 26 | 0.96× |
+| 512 | 8 | 1,261 | 1,181 | 6.3% | 103 | 81 | 1.27× |
+| 512 | 32 | 1,765 | 1,445 | 18.1% | 338 | 250 | 1.35× |
+| 512 | 128 | 3,782 | 2,502 | 33.8% | 1,315 | 967 | 1.36× |
+| 2,048 | 1 | 1,369 | 1,137 | 16.9% | 128 | 84 | 1.52× |
+| 2,048 | 8 | 3,301 | 1,445 | 56.2% | 700 | 321 | 2.18× |
+| 2,048 | 32 | 9,926 | 2,502 | 74.8% | 2,648 | 1,136 | 2.33× |
+| 2,048 | 128 | OOM | 6,729 | — | OOM | 4,392 | — |
+| 8,192 | 1 | 7,321 | 1,269 | 82.7% | 998 | 416 | 2.40× |
+| 8,192 | 8 | OOM | 2,502 | — | OOM | 1,922 | — |
+| 8,192 | 32 | OOM | 6,729 | — | OOM | 6,995 | — |
+| 8,192 | 128 | OOM | OOM | — | OOM | OOM | — |
+
+Methodology: median of 3 timed runs after 2 warmups per cell, fp16, single A10G (24 GB). VRAM measured via `torch.cuda.max_memory_allocated()`. m3serve loaded with `attn_implementation="eager"` and `attn_implementation="flash_attention_2"` respectively; transformers v5, flash-attn 2.x. Both rows at L=8192 / B=128 OOM on the 24 GB ceiling, recursive batch-halving inside `encode_core` would let the FA2 row succeed there; eager would still OOM after halving because its attention memory alone exceeds budget.
+
 ## Limitations
 
 **Single model, single GPU.** m3serve runs one bge-m3 instance on one GPU.
